@@ -1,6 +1,3 @@
-# Creates a Microsoft 365 Apps package and optionally imports into a target Intune tenant
-# Uses secrets on the repo - TENANT_ID, CLIENT_ID, and CLIENT_SECRET
-# to import the package into a target tenant
 name: 'Import package'
 
 env:
@@ -59,13 +56,11 @@ jobs:
       - name: Test configuration file path
         id: test-config
         shell: powershell
-        working-directory: "${{ github.workspace }}"
         run: |
-          $params = @{
-            Path     = "${{ github.workspace }}\configs\${{ github.event.inputs.configuration }}"
-            PathType = "Leaf"
+          $file = "${{ github.workspace }}\configs\${{ github.event.inputs.configuration }}"
+          if (-not (Test-Path -Path $file -PathType Leaf)) {
+            throw "Could not find configuration file: $file"
           }
-          if (-not (Test-Path @params)) { throw "Could not find configuration file: ${{ github.event.inputs.configuration }}" }
 
       - name: Install and cache PowerShell modules
         id: psmodulecache
@@ -78,9 +73,8 @@ jobs:
       - name: Update Evergreen apps
         id: update-evergreen
         shell: powershell
-        working-directory: "${{ github.workspace }}"
         run: |
-          Import-Module -Name Evergreen -Force
+          Import-Module Evergreen -Force
           Update-Evergreen
 
       # -----------------------------
@@ -88,39 +82,71 @@ jobs:
       # -----------------------------
       - name: Create and Import package
         id: import-package
-        if:  ${{ github.event.inputs.import == 'true' }}
+        if: ${{ github.event.inputs.import == 'true' }}
         shell: powershell
-        working-directory: "${{ github.workspace }}"
         run: |
           New-Item -Path "${{ github.workspace }}\package" -ItemType Directory -Force
 
           $params = @{
-              TenantId     = "${{ secrets.TENANT_ID }}"
-              ClientId     = "${{ secrets.CLIENT_ID }}"
-              ClientSecret = "${{ secrets.CLIENT_SECRET }}"
+            TenantId     = "${{ secrets.TENANT_ID }}"
+            ClientId     = "${{ secrets.CLIENT_ID }}"
+            ClientSecret = "${{ secrets.CLIENT_SECRET }}"
           }
           Connect-MSIntuneGraph @params
 
           $params = @{
-              Path              = "${{ github.workspace }}"
-              ConfigurationFile = "${{ github.workspace }}\configs\${{ github.event.inputs.configuration }}"
-              Channel           = "${{ github.event.inputs.channel }}"
-              CompanyName       = "${{ github.event.inputs.companyname }}"
-              TenantId          = "${{ secrets.TENANT_ID }}"
-              UsePsadt          = $([System.Convert]::ToBoolean("${{ github.event.inputs.psadt }}"))
+            Path              = "${{ github.workspace }}"
+            ConfigurationFile = "${{ github.workspace }}\configs\${{ github.event.inputs.configuration }}"
+            Channel           = "${{ github.event.inputs.channel }}"
+            CompanyName       = "${{ github.event.inputs.companyname }}"
+            TenantId          = "${{ secrets.TENANT_ID }}"
+            UsePsadt          = $([bool]::Parse("${{ github.event.inputs.psadt }}"))
           }
           & "${{ github.workspace }}\New-Microsoft365AppsPackage.ps1" @params
 
       # ---------------------------------------
-      # CREATE PACKAGE ONLY (NO INTUNE, NO SSO)
+      # CREATE PACKAGE ONLY (NO INTUNE)
       # ---------------------------------------
       - name: Create package artifact only
         id: create-artifact
-        if:  ${{ github.event.inputs.import == 'false' }}
+        if: ${{ github.event.inputs.import == 'false' }}
         shell: powershell
-        working-directory: "${{ github.workspace }}"
         run: |
           New-Item -Path "${{ github.workspace }}\package" -ItemType Directory -Force
 
           $params = @{
-              Path             
+            Path              = "${{ github.workspace }}"
+            ConfigurationFile = "${{ github.workspace }}\configs\${{ github.event.inputs.configuration }}"
+            Channel           = "${{ github.event.inputs.channel }}"
+            CompanyName       = "${{ github.event.inputs.companyname }}"
+            UsePsadt          = $([bool]::Parse("${{ github.event.inputs.psadt }}"))
+            SkipImport        = $true
+          }
+
+          & "${{ github.workspace }}\New-Microsoft365AppsPackage.ps1" @params
+
+      - name: Set release parameters
+        id: release
+        shell: pwsh
+        run: |
+          $ConfigurationFile = Get-ChildItem "${{ github.workspace }}\package\output\*.xml" | Select-Object -First 1
+          $FileName = [IO.Path]::GetFileNameWithoutExtension($ConfigurationFile)
+          [xml]$Xml = Get-Content $ConfigurationFile
+          $Channel = $Xml.Configuration.Add.Channel
+          $Date = Get-Date -Format yyyyMMdd
+          $SetupVersion = (Get-Item "${{ github.workspace }}\m365\setup.exe").VersionInfo.FileVersion
+          Import-Module Evergreen
+          $PsadtVersion = (Get-EvergreenApp -Name "PSAppDeployToolkit").Version
+
+          echo "release=$FileName.$Channel.$Date.${{ github.run_number }}" >> $Env:GITHUB_OUTPUT
+          echo "filename=$FileName" >> $Env:GITHUB_OUTPUT
+          echo "channel=$Channel" >> $Env:GITHUB_OUTPUT
+          echo "setup=$SetupVersion" >> $Env:GITHUB_OUTPUT
+          echo "psadt=$PsadtVersion" >> $Env:GITHUB_OUTPUT
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.release.outputs.release }}
+          path: |
+            ${{ github.workspace }}/package/output/*
