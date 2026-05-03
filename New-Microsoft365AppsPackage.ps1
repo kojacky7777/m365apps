@@ -19,72 +19,61 @@ param(
     [switch]$SkipImport
 )
 
-function Write-Msg {
-    param([string]$Message)
-    $ts = (Get-Date).ToString("dd.MM.yyyy HH:mm:ss")
-    Write-Host "[$ts] $Message"
+function Log {
+    param([string]$Text)
+    $ts = Get-Date -Format "dd.MM.yyyy HH:mm:ss"
+    Write-Host "[" + $ts + "] " + $Text
 }
 
-function Ensure-Directory {
-    param([string]$Path)
-    if (-not (Test-Path $Path)) {
-        New-Item -Path $Path -ItemType Directory -Force | Out-Null
+function EnsureDir {
+    param([string]$Dir)
+    if (-not (Test-Path $Dir)) {
+        New-Item -Path $Dir -ItemType Directory -Force | Out-Null
     }
 }
 
-Write-Msg "Starting local Microsoft 365 Apps package build."
+Log "Starting build"
 
-# Validate paths
 if (-not (Test-Path $Path)) { throw "Path not found: $Path" }
-if (-not (Test-Path $ConfigurationFile)) { throw "Configuration file not found: $ConfigurationFile" }
+if (-not (Test-Path $ConfigurationFile)) { throw "Config not found: $ConfigurationFile" }
 
-# Create structure
 $packageRoot = Join-Path $Path "package"
 $source = Join-Path $packageRoot "source"
 $output = Join-Path $packageRoot "output"
 
-Write-Msg "Creating package structure."
-Ensure-Directory $packageRoot
-Ensure-Directory $source
-Ensure-Directory $output
+EnsureDir $packageRoot
+EnsureDir $source
+EnsureDir $output
 
-# Copy setup.exe
-Write-Msg "Copying setup.exe"
-Copy-Item -Path "$Path\m365\setup.exe" -Destination "$source\setup.exe" -Force
+Log "Copying setup.exe"
+Copy-Item "$Path\m365\setup.exe" "$source\setup.exe" -Force
 
-# Copy configuration files
-Write-Msg "Copying configuration files"
-Copy-Item -Path $ConfigurationFile -Destination "$source\Install-Microsoft365Apps.xml" -Force
-Copy-Item -Path "$Path\configs\Uninstall-Microsoft365Apps.xml" -Destination "$source\Uninstall-Microsoft365Apps.xml" -Force
+Log "Copying XML"
+Copy-Item $ConfigurationFile "$source\Install-Microsoft365Apps.xml" -Force
+Copy-Item "$Path\configs\Uninstall-Microsoft365Apps.xml" "$source\Uninstall-Microsoft365Apps.xml" -Force
 
-# Update XML (only Channel)
-Write-Msg "Updating XML configuration"
+Log "Updating XML"
 [xml]$xml = Get-Content "$source\Install-Microsoft365Apps.xml"
 
 if ($xml.Configuration.Add.Channel) {
     $xml.Configuration.Add.Channel = $Channel
-    Write-Msg "Channel updated to $Channel"
-} else {
-    Write-Msg "Channel element not found — skipping"
 }
 
 $xml.Save("$source\Install-Microsoft365Apps.xml")
 
-# Copy PSADT if needed
 if ($UsePsadt) {
-    Write-Msg "Copying PSADT files"
-    Ensure-Directory "$source\SupportFiles"
-    Copy-Item -Path "$Path\scrub\*" -Destination "$source\SupportFiles" -Recurse -Force
-    Copy-Item -Path "$Path\scripts\Invoke-AppDeployToolkit.ps1" -Destination "$source\Invoke-AppDeployToolkit.ps1" -Force
+    Log "Copying PSADT"
+    EnsureDir "$source\SupportFiles"
+    Copy-Item "$Path\scrub\*" "$source\SupportFiles" -Recurse -Force
+    Copy-Item "$Path\scripts\Invoke-AppDeployToolkit.ps1" "$source\Invoke-AppDeployToolkit.ps1" -Force
 }
 
-# Create ZIP package
-Write-Msg "Creating ZIP package"
-$zipPath = Join-Path $output "m365apps.zip"
-if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-Compress-Archive -Path "$source\*" -DestinationPath $zipPath
+Log "Creating ZIP"
+$zip = Join-Path $output "m365apps.zip"
+if (Test-Path $zip) { Remove-Item $zip -Force }
+Compress-Archive -Path "$source\*" -DestinationPath $zip
 
-Write-Msg "Package created successfully:"
-Write-Msg $zipPath
+Log "Package ready"
+Log $zip
 
-Write-Msg "Done."
+Log "Build complete"
