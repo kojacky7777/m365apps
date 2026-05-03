@@ -16,12 +16,8 @@ param(
     [switch]$UsePsadt,
 
     [Parameter(Mandatory = $false)]
-    [switch]$SkipImport  # игнорируется, оставлено для совместимости с YAML
+    [switch]$SkipImport
 )
-
-# -----------------------------
-# Вспомогательные функции
-# -----------------------------
 
 function Write-Msg($msg) {
     $ts = (Get-Date).ToString("dd.MM.yyyy HH:mm:ss")
@@ -34,20 +30,11 @@ function Ensure-Directory($path) {
     }
 }
 
-# -----------------------------
-# Начало работы
-# -----------------------------
-
 Write-Msg "Starting local Microsoft 365 Apps package build."
 
 # Проверка путей
-if (-not (Test-Path $Path)) {
-    throw "Path not found: $Path"
-}
-
-if (-not (Test-Path $ConfigurationFile)) {
-    throw "Configuration file not found: $ConfigurationFile"
-}
+if (-not (Test-Path $Path)) { throw "Path not found: $Path" }
+if (-not (Test-Path $ConfigurationFile)) { throw "Configuration file not found: $ConfigurationFile" }
 
 # Создаём структуру
 $packageRoot = Join-Path $Path "package"
@@ -68,12 +55,16 @@ Write-Msg "Copying configuration files"
 Copy-Item -Path $ConfigurationFile -Destination "$source\Install-Microsoft365Apps.xml" -Force
 Copy-Item -Path "$Path\configs\Uninstall-Microsoft365Apps.xml" -Destination "$source\Uninstall-Microsoft365Apps.xml" -Force
 
-# Обновляем XML (без TenantId)
+# Обновляем XML (только Channel)
 Write-Msg "Updating XML configuration"
 [xml]$xml = Get-Content "$source\Install-Microsoft365Apps.xml"
 
-$xml.Configuration.Add.Channel = $Channel
-$xml.Configuration.AppSettings.Setup.Value = $CompanyName
+if ($xml.Configuration.Add.Channel) {
+    $xml.Configuration.Add.Channel = $Channel
+    Write-Msg "Channel updated to $Channel"
+} else {
+    Write-Msg "Channel element not found — skipping"
+}
 
 $xml.Save("$source\Install-Microsoft365Apps.xml")
 
