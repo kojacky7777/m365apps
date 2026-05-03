@@ -16,6 +16,7 @@ on:
           - O365ProPlusVisioProProjectPro.xml
           - O365ProPlusOutlookVisioProProjectPro.xml
           - O365ProPlus.xml
+          - O365ProPlusRu.xml
           - O365ProPlusOutlook.xml
           - O365Business.xml
           - O365BusinessOutlook.xml
