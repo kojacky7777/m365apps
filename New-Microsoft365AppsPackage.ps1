@@ -68,6 +68,9 @@ if ($UsePsadt) {
     Copy-Item "$Path\scripts\Invoke-AppDeployToolkit.ps1" "$source\Invoke-AppDeployToolkit.ps1" -Force
 }
 
+# NEW: copy XML to output so YAML can find it
+Copy-Item "$source\Install-Microsoft365Apps.xml" "$output\Install-Microsoft365Apps.xml" -Force
+
 Log "Creating ZIP"
 $zip = Join-Path $output "m365apps.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
